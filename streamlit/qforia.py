@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 import pandas as pd
 import json
+import time
 
 # App config
 st.set_page_config(page_title="Qforia", layout="wide")
@@ -27,10 +28,9 @@ else:
 
 mode = st.sidebar.radio("Search Mode", ["AI Overview (simple)", "AI Mode (complex)"])
 
-# Configure Gemini (use 2.5 Pro)
+# Configure Gemini
 if gemini_key:
     genai.configure(api_key=gemini_key)
-    # You can change to a pinned version like "gemini-2.5-pro-exp-0827" if desired.
     model_name = "gemini-3.8-flash"
     model = genai.GenerativeModel(model_name)
 else:
@@ -126,10 +126,21 @@ def QUERY_FANOUT_PROMPT(q, mode):
         "}"
     )
 
-# Single fan-out
-def generate_fanout(query, mode):
+# Single fan-out with automated 429 retry
+def generate_fanout(query, mode, max_retries=2, retry_delay=15):
     prompt = QUERY_FANOUT_PROMPT(query, mode)
-    response = model.generate_content(prompt)
+    
+    response = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = model.generate_content(prompt)
+            break
+        except Exception as e:
+            if "429" in str(e) and attempt < max_retries:
+                time.sleep(retry_delay)
+            else:
+                raise e
+
     json_text = response.text.strip()
 
     # Clean code fences if present
@@ -151,7 +162,6 @@ if 'last_runs' not in st.session_state:
 
 # Run button
 if st.sidebar.button("Run Fan-Out 🚀"):
-    # Build list of lookup queries
     if input_mode == "Single query":
         lookups = [user_query.strip()] if user_query.strip() else []
     else:
@@ -177,7 +187,6 @@ if st.sidebar.button("Run Fan-Out 🚀"):
                 "target_query_count": details.get("target_query_count"),
                 "reasoning_for_count": details.get("reasoning_for_count", "")
             })
-            # Flatten rows, prefix with lookup query
             for obj in expanded:
                 all_rows.append({
                     "lookup_query": q,
@@ -200,13 +209,16 @@ if st.sidebar.button("Run Fan-Out 🚀"):
 
         progress.progress(i / total)
 
+        # Enforce rate limit (< 5 RPM) if more queries remain in the queue
+        if i < total:
+            time.sleep(15)
+
     status.update(label="Complete.", state="complete")
 
-    # Build output DataFrame (lookup_query first)
+    # Build output DataFrame
     if all_rows:
         df = pd.DataFrame(all_rows)
 
-        # Ensure column order (lookup_query first)
         preferred_cols = [
             "lookup_query",
             "query",
@@ -228,7 +240,7 @@ if st.sidebar.button("Run Fan-Out 🚀"):
     else:
         st.warning("No synthetic queries were generated.")
 
-    # Summaries per lookup (optional)
+    # Summaries per lookup
     if run_summaries:
         st.markdown("---")
         st.subheader("🧠 Generation Plans (per lookup)")
