@@ -31,7 +31,7 @@ mode = st.sidebar.radio("Search Mode", ["AI Overview (simple)", "AI Mode (comple
 if gemini_key:
     genai.configure(api_key=gemini_key)
     # You can change to a pinned version like "gemini-2.5-pro-exp-0827" if desired.
-    model_name = "gemini-3-flash"
+    model_name = "gemini-3.8-flash"
     model = genai.GenerativeModel(model_name)
 else:
     st.error("Please enter your Gemini API Key to proceed.")
